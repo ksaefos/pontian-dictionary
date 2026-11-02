@@ -1,5 +1,5 @@
 /* Pontian Dictionary v5.1 — offline navigation, live update aware. */
-const CACHE = 'pontian-dictionary-shell-v5.1.0';
+const CACHE = 'pontian-dictionary-shell-v5.1.1';
 const ROOT = self.registration.scope;
 const SHELL = [ROOT, ROOT+'index.html',ROOT+'cloud-sync.js',ROOT+'manifest.webmanifest',ROOT+'icons/icon-192.png',ROOT+'icons/icon-512.png'];
 self.addEventListener('install', event => {
