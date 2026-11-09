@@ -76,6 +76,7 @@ body:not(.admin-mode) .edit-entry, body:not(.admin-mode) .manage {display:none !
 .cloud-dialog-inner label{display:grid;gap:6px;font-size:.89rem}
 .cloud-dialog-inner input{font:inherit;color:var(--ink);background:var(--surface-low);border:1px solid var(--line);padding:11px;border-radius:12px;min-width:0;width:100%;box-sizing:border-box}
 .cloud-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.cloud-dialog-inner input[readonly]{opacity:1;cursor:default;color:var(--primary);font-weight:650}
 .cloud-dialog-inner .small-note{font-size:.81rem}
 @media(max-width:640px){.cloud-open-label{display:none}.cloud-open{padding:10px}}
 </style></head><body>
@@ -95,9 +96,9 @@ body:not(.admin-mode) .edit-entry, body:not(.admin-mode) .manage {display:none !
 <div id="cloudStatus" class="cloud-status" role="status">Φόρτωση ενημερώσεων GitHub…</div><nav class="alphabet" id="alphabet" aria-label="Αλφαβητικό ευρετήριο"></nav><div class="result-head"><span id="summary"></span><span id="shown"></span></div><section id="entries" class="entries" aria-live="polite"></section><button id="more" class="more" type="button" hidden>Εμφάνιση περισσότερων</button><nav id="pager" class="pager" aria-label="Σελιδοποίηση λημμάτων" hidden></nav><p class="foot">v5.0 · GitHub Pages · 29.701 λήμματα. Δημόσια αναζήτηση και ασφαλής επεξεργασία με αυτοματοποιημένες αποθηκεύσεις. Όλες οι αρχικές λειτουργίες της v4.6 διατηρούνται.</p></main>
 <dialog id="cloudDialog" class="cloud-dialog" aria-labelledby="cloudDialogTitle"><div class="cloud-dialog-inner">
 <h2 id="cloudDialogTitle">Σύνδεση διαχειριστή</h2>
-<p>Σύνδεσε την εφαρμογή με το Cloudflare Worker για να δημοσιεύονται αυτόματα οι διορθώσεις στο <strong>ksaefos/pontian-dictionary</strong>.</p>
-<label>Διεύθυνση Cloudflare Worker<input id="workerAddress" type="url" placeholder="https://pontian-dictionary-sync.όνομα.workers.dev" autocomplete="url" spellcheck="false"/></label>
-<label>Προσωπικό κλειδί επεξεργαστή<input id="editorAccessKey" type="password" autocomplete="off" placeholder="EDITOR_KEY (όχι GitHub Token)"/></label>
+<p>Σύνδεση διαχειριστή για την επεξεργασία των λημμάτων.</p>
+<label>Όνομα χρήστη<input id="editorUsername" type="text" value="ksaefos" readonly aria-readonly="true" autocomplete="username" spellcheck="false"/></label>
+<label>Κωδικός πρόσβασης<input id="editorAccessKey" type="password" autocomplete="current-password" placeholder="Κωδικός διαχειριστή"/></label>
 <p class="small-note">Το κλειδί δεν αποθηκεύεται στο GitHub ούτε στο HTML. Διατηρείται μόνο για την τρέχουσα καρτέλα. Το GitHub token υπάρχει αποκλειστικά στα μυστικά του Worker.</p>
 <div id="cloudDialogStatus" class="small-note" aria-live="polite"></div>
 <div class="cloud-actions"><button type="button" class="m-btn primary" id="cloudConnect">Σύνδεση</button><button type="button" class="m-btn" id="cloudRefresh">Ανανέωση δεδομένων</button><button type="button" class="m-btn" id="cloudRetry" hidden>Αποστολή εκκρεμών</button></div>

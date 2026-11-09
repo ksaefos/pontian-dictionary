@@ -4,7 +4,7 @@
   'use strict';
   const STATUS = document.getElementById('cloudStatus');
   const modal = document.getElementById('cloudDialog');
-  const URL_KEY = 'pontian-dictionary-worker-url';
+  const WORKER_URL = 'https://pontian-dictionary-sync.ksaefos.workers.dev';
   const SESSION_KEY = 'pontian-dictionary-editor-session';
   const PENDING_KEY = 'pontian-dictionary-github-pending-' + EDITION_ID;
   const banner = (text, mode = '') => {
@@ -17,14 +17,8 @@
   function setLocal(key, val) { try { localStorage.setItem(key,val); } catch {} }
   function getSession() { try { return sessionStorage.getItem(SESSION_KEY) || ''; } catch { return ''; } }
   function setSession(key) { try { if(key)sessionStorage.setItem(SESSION_KEY,key);else sessionStorage.removeItem(SESSION_KEY); } catch {} }
-  function normalizedUrl(raw) {
-    if(!raw.trim())return '';
-    const url = new URL(raw.trim());
-    if(url.protocol !== 'https:')throw new Error('Η διεύθυνση πρέπει να αρχίζει με https://');
-    if(url.username || url.password || url.search || url.hash)throw new Error('Δώστε μόνο την κύρια διεύθυνση του Worker.');
-    return url.origin + url.pathname.replace(/\/+$/, '');
-  }
-  let workerURL = getLocal(URL_KEY);
+  // Public Worker address is fixed; only the editor password is entered at login.
+  let workerURL = WORKER_URL;
   let editorKey = getSession();
   let remote = {};
   let remoteLoaded = false;
@@ -104,22 +98,18 @@
     else banner('Το δημόσιο λεξικό ενημερώθηκε από το GitHub.', 'ok');
   }
   async function login() {
-    let url;
-    try {url=normalizedUrl(document.getElementById('workerAddress').value);}
-    catch(e) {banner(e.message,'error');return}
     const key=document.getElementById('editorAccessKey').value.trim();
-    if(!url||!key){banner('Συμπλήρωσε τη διεύθυνση Worker και το κλειδί επεξεργαστή.','warning');return}
-    const previousURL=workerURL;
-    workerURL=url;
+    if(!key){banner('Συμπλήρωσε τον κωδικό πρόσβασης.','warning');return}
     try {
       banner('Έλεγχος σύνδεσης…');
       await api('/auth',{key});
-      editorKey=key;setSession(key);setLocal(URL_KEY,url);
+      editorKey=key;setSession(key);
       adminMode(true);
       await reloadRemote();
+      document.getElementById('editorAccessKey').value='';
       closeModal();
       if(pending.size)banner(`Συνδέθηκες. Υπάρχουν ${pending.size} τοπικές αλλαγές προς αποστολή. Πάτησε «Αποστολή εκκρεμών».`,'warning');
-    } catch(e){workerURL=previousURL;editorKey='';setSession('');adminMode(false);banner('Αποτυχία σύνδεσης: '+e.message,'error')}
+    } catch(e){editorKey='';setSession('');adminMode(false);banner('Αποτυχία σύνδεσης: '+e.message,'error')}
   }
   function closeModal(){if(typeof modal.close==='function')modal.close();else modal.removeAttribute('open')}
   function disconnect(){editorKey='';setSession('');adminMode(false);closeModal();banner('Αποσυνδέθηκες. Η δημόσια αναζήτηση παραμένει διαθέσιμη.','ok')}
@@ -181,7 +171,6 @@
     banner('Οι αλλαγές από αρχείο JSON είναι τοπικές. Μετά την εισαγωγή, χρησιμοποίησε «Δημοσίευση τοπικών».','warning');
   });
   byId('cloudOpen').onclick=()=>{
-    document.getElementById('workerAddress').value=workerURL;
     document.getElementById('editorAccessKey').value=editorKey;
     if(typeof modal.showModal==='function')modal.showModal();else modal.setAttribute('open','');
   };
@@ -192,7 +181,6 @@
   document.getElementById('cloudRefresh').onclick=()=>reloadRemote().catch(e=>banner('Δεν φορτώθηκαν οι τελευταίες αλλαγές: '+e.message,'error'));
   document.getElementById('cloudRetry').onclick=()=>{if(editorKey)pump();else banner('Συνδέσου ως διαχειριστής για να στείλεις τις αλλαγές.','warning')};
   modal.addEventListener('cancel',e=>{e.preventDefault();closeModal()});
-  document.getElementById('workerAddress').value=workerURL;
   adminMode(!!editorKey && !!workerURL);
   banner('Φόρτωση δημοσιευμένων αλλαγών…');
   reloadRemote().then(async()=>{
