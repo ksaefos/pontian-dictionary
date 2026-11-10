@@ -47,7 +47,7 @@
     updatePendingControls();
   }
   function adminMode(enabled) {
-    document.body.classList.toggle('admin-mode', !!enabled);
+    document.body.classList.toggle('admin-mode', IS_ADMIN_PAGE && !!enabled);
     document.getElementById('cloudOpen').setAttribute('aria-pressed',String(!!enabled));
     document.getElementById('cloudOpen').querySelector('.cloud-open-label').textContent = enabled ? 'Διαχειριστής' : 'Διαχείριση';
     updatePendingControls();
@@ -105,7 +105,7 @@
     overlay(data);
     if(pending.size)banner(`Υπάρχουν ${pending.size} τοπικές διορθώσεις που δεν έχουν δημοσιευτεί.`, 'warning');
     else if(editorKey && workerURL)banner('Συνδεδεμένος διαχειριστής · Οι αλλαγές δημοσιεύονται στο GitHub.','ok');
-    else banner('Το δημόσιο λεξικό ενημερώθηκε από το GitHub.', 'ok');
+    else banner('', 'ok');
   }
   async function login() {
     const key=document.getElementById('editorAccessKey').value.trim();
@@ -185,6 +185,7 @@
     banner('Οι αλλαγές από αρχείο JSON είναι τοπικές. Μετά την εισαγωγή, χρησιμοποίησε «Δημοσίευση τοπικών».','warning');
   });
   byId('cloudOpen').onclick=()=>{
+    if(!IS_ADMIN_PAGE)return;
     document.getElementById('editorAccessKey').value=editorKey;
     if(typeof modal.showModal==='function')modal.showModal();else modal.setAttribute('open','');
   };

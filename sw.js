@@ -1,7 +1,7 @@
 /* Pontian Dictionary v5.1 — offline navigation, live update aware. */
-const CACHE = 'pontian-dictionary-shell-v5.1.4';
+const CACHE = 'pontian-dictionary-shell-v5.1.5';
 const ROOT = self.registration.scope;
-const SHELL = [ROOT, ROOT+'index.html',ROOT+'cloud-sync.js',ROOT+'manifest.webmanifest',ROOT+'icons/icon-192.png',ROOT+'icons/icon-512.png'];
+const SHELL = [ROOT, ROOT+'index.html',ROOT+'admin/',ROOT+'admin/index.html',ROOT+'cloud-sync.js',ROOT+'manifest.webmanifest',ROOT+'icons/icon-192.png',ROOT+'icons/icon-512.png'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(SHELL)).then(()=>self.skipWaiting()));
 });
@@ -16,9 +16,9 @@ self.addEventListener('fetch', event => {
   if(url.origin!==self.location.origin || !url.pathname.startsWith(new URL(ROOT).pathname))return;
   if(req.mode==='navigate') {
     event.respondWith(fetch(req).then(resp=>{
-      if(resp.ok){const clone=resp.clone();event.waitUntil(caches.open(CACHE).then(c=>c.put(ROOT+'index.html',clone)));}
+      if(resp.ok){const clone=resp.clone();event.waitUntil(caches.open(CACHE).then(c=>c.put(req,clone)));}
       return resp;
-    }).catch(async()=> (await caches.match(ROOT+'index.html')) || Response.error()));
+    }).catch(async()=> (await caches.match(req)) || (await caches.match(url.pathname.includes('/admin/')?ROOT+'admin/index.html':ROOT+'index.html')) || Response.error()));
     return;
   }
   // Keep public edits.json network-first, cache only successful non-sensitive public response.
