@@ -28,10 +28,10 @@
   try {
     const parsed = JSON.parse(getLocal(PENDING_KEY,'{}'));
     if(parsed && !Array.isArray(parsed))for(const [id,row] of Object.entries(parsed)){
-      if(Number.isSafeInteger(Number(id)) && Number(id)>=0 && Number(id)<DATA.length && (row === null || Array.isArray(row))) pending.set(Number(id),row);
+      if(Number.isSafeInteger(Number(id)) && Number(id)>=0 && Number(id)<DATA.length && (row === null || Array.isArray(row) || row?.deleted===true)) pending.set(Number(id),row);
     }
   } catch {};
-  const originalLocalRows = new Map([...CHANGED].map(i=>[i,DATA[i].slice(0,6)]));
+  const originalLocalRows = new Map([...CHANGED].map(i=>[i,DELETED.has(i)?{deleted:true}:dictionarySnapshot(i)]));
   let firstOverlay = true;
   const eq = (a,b) => JSON.stringify(a??null) === JSON.stringify(b??null);
   function savePending() {
@@ -68,14 +68,15 @@
     const remoteIndices=new Set(Object.keys(remote).map(Number));
     for(const id of new Set([...localCompare,...remoteIndices])){
       if(!Number.isInteger(id) || id<0 || id>=DATA.length)continue;
-      const cloudRow=remote[id]??null;
-      const expected=cloudRow||BASE_ROWS[id];
+      const cloudRow=(Object.prototype.hasOwnProperty.call(remote,id)?remote[id]:null);
+      const expected=cloudRow?.deleted===true?cloudRow:(cloudRow||[...BASE_ROWS[id],'']);
       if(firstOverlay && !pending.has(id) && originalLocalRows.has(id) && !eq(originalLocalRows.get(id),expected)) {
         // Never silently discard a local edit from the previous offline application.
         pending.set(id, originalLocalRows.get(id));
       }
-      const row = pending.has(id) ? (pending.get(id) ?? BASE_ROWS[id]) : expected;
-      if(Array.isArray(row) && row.length===6)saveRow(id,row);
+      const row = pending.has(id) ? pending.get(id) : expected;
+      if(row?.deleted===true)saveRow(id,row);
+      else if(Array.isArray(row) && (row.length===6||row.length===7))saveRow(id,row);
     }
     firstOverlay=false;
     savePending();
@@ -114,7 +115,7 @@
   function closeModal(){if(typeof modal.close==='function')modal.close();else modal.removeAttribute('open')}
   function disconnect(){editorKey='';setSession('');adminMode(false);closeModal();banner('Αποσυνδέθηκες. Η δημόσια αναζήτηση παραμένει διαθέσιμη.','ok')}
   function queue(id) {
-    const row=CHANGED.has(id) ? DATA[id].slice(0,6) : null;
+    const row=DELETED.has(id)?{deleted:true}:(CHANGED.has(id) ? dictionarySnapshot(id) : null);
     pending.set(id,row);savePending();
     if(!editorKey||!workerURL){banner('Η διόρθωση σώθηκε τοπικά, όχι στο GitHub. Σύνδεσε τον διαχειριστή.','warning');return}
     banner(`Τοπική αποθήκευση OK · ${pending.size} αλλαγές αναμένουν GitHub…`);
@@ -126,7 +127,7 @@
     inFlight=true;
     const batch=[...pending.entries()].slice(0,100);
     const changes={};
-    for(const [id,row] of batch)changes[id]={expected:remote[id]??null,row};
+    for(const [id,row] of batch)changes[id]={expected:(Object.prototype.hasOwnProperty.call(remote,id)?remote[id]:null),row};
     try{
       banner(`Αποστολή ${batch.length} διορθώσεων στο GitHub…`);
       await api('/save',{method:'POST',key:editorKey,body:{changes}});
@@ -152,20 +153,21 @@
   function stageAllLocal() {
     if(!editorKey){banner('Συνδέσου ως διαχειριστής πρώτα.','warning');return}
     if(!remoteLoaded){banner('Δεν έχουν φορτωθεί ακόμη οι αλλαγές του GitHub.','warning');return}
-    const ids=[...CHANGED].filter(i=>!eq(DATA[i].slice(0,6),remote[i]??BASE_ROWS[i]));
+    const ids=[...CHANGED].filter(i=>!eq(DELETED.has(i)?{deleted:true}:dictionarySnapshot(i),remote[i]??[...BASE_ROWS[i],'']));
     if(!ids.length){banner('Δεν υπάρχουν νέες τοπικές αλλαγές για αποστολή.','ok');return}
     if(!confirm(`Να σταλούν ${ids.length} τοπικά τροποποιημένες εγγραφές στο GitHub; Θα δημιουργηθούν commits.`))return;
-    for(const i of ids)pending.set(i,DATA[i].slice(0,6));
+    for(const i of ids)pending.set(i,DELETED.has(i)?{deleted:true}:dictionarySnapshot(i));
     savePending();closeModal();pump();
   }
   // Keep the original per-entry editor: clicking Save automatically queues a GitHub commit.
   const originalSave=byId('saveEditor').onclick;
   byId('saveEditor').onclick=()=>{
     const id=editorIndex;
-    const before=id>=0?JSON.stringify(DATA[id].slice(0,6)):'';
+    const before=id>=0?JSON.stringify(DELETED.has(id)?{deleted:true}:dictionarySnapshot(id)):'';
     originalSave();
-    if(id>=0 && editorIndex===-1 && before!==JSON.stringify(DATA[id].slice(0,6)))queue(id);
+    if(id>=0 && editorIndex===-1 && before!==JSON.stringify(DELETED.has(id)?{deleted:true}:dictionarySnapshot(id)))queue(id);
   };
+  document.addEventListener('dictionary-entry-deleted',e=>queue(e.detail.index));
   // Imported JSON is local-only until the editor explicitly selects "Publish local changes".
   byId('importFile').addEventListener('change',()=>{
     banner('Οι αλλαγές από αρχείο JSON είναι τοπικές. Μετά την εισαγωγή, χρησιμοποίησε «Δημοσίευση τοπικών».','warning');
