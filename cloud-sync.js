@@ -4,6 +4,14 @@
   'use strict';
   const STATUS = document.getElementById('cloudStatus');
   const modal = document.getElementById('cloudDialog');
+  const retryVisible = document.getElementById('cloudRetryVisible');
+  const pendingActions = document.getElementById('cloudPendingActions');
+  function updatePendingControls() {
+    const show = pending.size > 0 && !!editorKey;
+    pendingActions.hidden = !show;
+    retryVisible.disabled = !show || inFlight || !remoteLoaded;
+    document.getElementById('cloudRetry').hidden = !pending.size;
+  }
   const WORKER_URL = 'https://pontian-dictionary-sync.ksaefos.workers.dev';
   const SESSION_KEY = 'pontian-dictionary-editor-session';
   const PENDING_KEY = 'pontian-dictionary-github-pending-' + EDITION_ID;
@@ -11,7 +19,7 @@
     STATUS.textContent = text;
     STATUS.dataset.state = mode;
     document.getElementById('cloudDialogStatus').textContent = text;
-    document.getElementById('cloudRetry').hidden = !pending.size;
+    updatePendingControls();
   };
   function getLocal(key, fallback='') { try { return localStorage.getItem(key) || fallback; } catch { return fallback; } }
   function setLocal(key, val) { try { localStorage.setItem(key,val); } catch {} }
@@ -36,12 +44,13 @@
   const eq = (a,b) => JSON.stringify(a??null) === JSON.stringify(b??null);
   function savePending() {
     setLocal(PENDING_KEY,JSON.stringify(Object.fromEntries(pending)));
-    document.getElementById('cloudRetry').hidden = !pending.size;
+    updatePendingControls();
   }
   function adminMode(enabled) {
     document.body.classList.toggle('admin-mode', !!enabled);
     document.getElementById('cloudOpen').setAttribute('aria-pressed',String(!!enabled));
     document.getElementById('cloudOpen').querySelector('.cloud-open-label').textContent = enabled ? 'Διαχειριστής' : 'Διαχείριση';
+    updatePendingControls();
   }
   async function api(path,{method='GET',body=null,key=''}={}) {
     if(!workerURL)throw new Error('Δεν έχει δηλωθεί η διεύθυνση του Cloudflare Worker.');
@@ -109,7 +118,10 @@
       await reloadRemote();
       document.getElementById('editorAccessKey').value='';
       closeModal();
-      if(pending.size)banner(`Συνδέθηκες. Υπάρχουν ${pending.size} τοπικές αλλαγές προς αποστολή. Πάτησε «Αποστολή εκκρεμών».`,'warning');
+      if(pending.size){
+        banner(`Συνδέθηκες. Ξεκινά η αποστολή ${pending.size} εκκρεμών αλλαγών στο GitHub…`,'warning');
+        await pump();
+      }
     } catch(e){editorKey='';setSession('');adminMode(false);banner('Αποτυχία σύνδεσης: '+e.message,'error')}
   }
   function closeModal(){if(typeof modal.close==='function')modal.close();else modal.removeAttribute('open')}
@@ -124,7 +136,7 @@
   }
   async function pump(){
     if(inFlight||!pending.size||!editorKey||!workerURL||!remoteLoaded)return;
-    inFlight=true;
+    inFlight=true;updatePendingControls();
     const batch=[...pending.entries()].slice(0,100);
     const changes={};
     for(const [id,row] of batch)changes[id]={expected:(Object.prototype.hasOwnProperty.call(remote,id)?remote[id]:null),row};
@@ -147,7 +159,7 @@
         banner('Το κλειδί διαχειριστή απορρίφθηκε. Οι αλλαγές έμειναν τοπικά.','error');
       }else banner('Αδυναμία αποθήκευσης στο GitHub: '+e.message+'. Οι αλλαγές διατηρούνται τοπικά.','error');
       return;
-    }finally{inFlight=false}
+    }finally{inFlight=false;updatePendingControls()}
     if(pending.size)setTimeout(pump,600);
   }
   function stageAllLocal() {
@@ -181,7 +193,9 @@
   document.getElementById('cloudClose').onclick=closeModal;
   document.getElementById('cloudPublishLocal').onclick=stageAllLocal;
   document.getElementById('cloudRefresh').onclick=()=>reloadRemote().catch(e=>banner('Δεν φορτώθηκαν οι τελευταίες αλλαγές: '+e.message,'error'));
-  document.getElementById('cloudRetry').onclick=()=>{if(editorKey)pump();else banner('Συνδέσου ως διαχειριστής για να στείλεις τις αλλαγές.','warning')};
+  const retryPending=()=>{if(editorKey)pump();else banner('Συνδέσου ως διαχειριστής για να στείλεις τις αλλαγές.','warning')};
+  document.getElementById('cloudRetry').onclick=retryPending;
+  retryVisible.onclick=retryPending;
   modal.addEventListener('cancel',e=>{e.preventDefault();closeModal()});
   adminMode(!!editorKey && !!workerURL);
   banner('Φόρτωση δημοσιευμένων αλλαγών…');
