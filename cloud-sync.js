@@ -1,209 +1,354 @@
-/* Pontian Dictionary v5 - GitHub Pages reader and secure Cloudflare Worker sync.
-   This file contains no access tokens or passwords. */
+/* Public reads and authenticated editor synchronization. */
 (() => {
   'use strict';
-  const STATUS = document.getElementById('cloudStatus');
-  const modal = document.getElementById('cloudDialog');
-  const retryVisible = document.getElementById('cloudRetryVisible');
-  const pendingActions = document.getElementById('cloudPendingActions');
-  function updatePendingControls() {
-    const show = pending.size > 0 && !!editorKey;
-    pendingActions.hidden = !show;
-    retryVisible.disabled = !show || inFlight || !remoteLoaded;
-    document.getElementById('cloudRetry').hidden = !pending.size;
-  }
-  const WORKER_URL = 'https://pontian-dictionary-sync.ksaefos.workers.dev';
+  const WORKER = 'https://pontian-dictionary-sync.ksaefos.workers.dev';
+  const SNAPSHOT_KEY = 'pontian-dictionary-published-' + EDITION_ID;
+  const LEGACY_PENDING = 'pontian-dictionary-github-pending-' + EDITION_ID;
   const SESSION_KEY = 'pontian-dictionary-editor-session';
-  const PENDING_KEY = 'pontian-dictionary-github-pending-' + EDITION_ID;
-  const banner = (text, mode = '') => {
-    STATUS.textContent = text;
-    STATUS.dataset.state = mode;
-    document.getElementById('cloudDialogStatus').textContent = text;
-    updatePendingControls();
+  const status = byId('cloudStatus');
+  let remote = null;
+  let hasWorkerSnapshot = false;
+  const base = id => [...BASE_ROWS[id], ''];
+  const isDeleted = row => row?.deleted === true;
+  const validId = id => /^(0|[1-9][0-9]*)$/.test(id) && Number(id) < DATA.length;
+  const validRow = row => (isDeleted(row) && Object.keys(row).length === 1) ||
+    (Array.isArray(row) && [6, 7].includes(row.length) &&
+    row.slice(0, 5).every(value => typeof value === 'string') &&
+    Array.isArray(row[5]) && row[5].every(value => typeof value === 'string') &&
+    (row.length === 6 || typeof row[6] === 'string'));
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  const canonical = row => Array.isArray(row) && row.length === 6 ? [...row, ''] : row;
+  const published = id => remote?.edits[id] ?? null;
+  const statusText = (message, state = '') => {
+    status.textContent = message;
+    status.dataset.state = state;
+    byId('cloudDialogStatus').textContent = message;
   };
-  function getLocal(key, fallback='') { try { return localStorage.getItem(key) || fallback; } catch { return fallback; } }
-  function setLocal(key, val) { try { localStorage.setItem(key,val); } catch {} }
-  function getSession() { try { return sessionStorage.getItem(SESSION_KEY) || ''; } catch { return ''; } }
-  function setSession(key) { try { if(key)sessionStorage.setItem(SESSION_KEY,key);else sessionStorage.removeItem(SESSION_KEY); } catch {} }
-  // Public Worker address is fixed; only the editor password is entered at login.
-  let workerURL = WORKER_URL;
-  let editorKey = getSession();
-  let remote = {};
-  let remoteLoaded = false;
-  let inFlight = false;
-  let scheduled = 0;
-  let pending = new Map();
-  try {
-    const parsed = JSON.parse(getLocal(PENDING_KEY,'{}'));
-    if(parsed && !Array.isArray(parsed))for(const [id,row] of Object.entries(parsed)){
-      if(Number.isSafeInteger(Number(id)) && Number(id)>=0 && Number(id)<DATA.length && (row === null || Array.isArray(row) || row?.deleted===true)) pending.set(Number(id),row);
+
+  function stored(key) {
+    try { return JSON.parse(localStorage.getItem(key)); }
+    catch { return null; }
+  }
+  function validate(file) {
+    if (file?.format !== 'pontian-github-edits-v1' || file.baseVersion !== EDITION_ID ||
+        file.total !== DATA.length || !file.edits || typeof file.edits !== 'object' ||
+        Array.isArray(file.edits) ||
+        Object.entries(file.edits).some(([id, row]) => !validId(id) || !validRow(row))) {
+      throw new Error('Το αρχείο διορθώσεων δεν αντιστοιχεί στη βάση ή περιέχει μη έγκυρα δεδομένα.');
     }
-  } catch {};
-  const originalLocalRows = new Map([...CHANGED].map(i=>[i,DELETED.has(i)?{deleted:true}:dictionarySnapshot(i)]));
-  let firstOverlay = true;
-  const eq = (a,b) => JSON.stringify(a??null) === JSON.stringify(b??null);
-  function savePending() {
-    setLocal(PENDING_KEY,JSON.stringify(Object.fromEntries(pending)));
-    updatePendingControls();
+    return file;
   }
-  function adminMode(enabled) {
-    document.body.classList.toggle('admin-mode', IS_ADMIN_PAGE && !!enabled);
-    document.getElementById('cloudOpen').setAttribute('aria-pressed',String(!!enabled));
-    document.getElementById('cloudOpen').querySelector('.cloud-open-label').textContent = enabled ? 'Διαχειριστής' : 'Διαχείριση';
-    updatePendingControls();
-  }
-  async function api(path,{method='GET',body=null,key=''}={}) {
-    if(!workerURL)throw new Error('Δεν έχει δηλωθεί η διεύθυνση του Cloudflare Worker.');
-    const response=await fetch(workerURL+path,{
-      method,
-      headers:{...(key?{'Authorization':'Bearer '+key}:{}), ...(body?{'Content-Type':'application/json'}:{})},
-      body:body?JSON.stringify(body):undefined,
-      cache:'no-store',
+  async function api(path, {key, changes} = {}) {
+    const response = await fetch(WORKER + path, {
+      method: changes ? 'POST' : 'GET',
+      headers: {
+        ...(key ? {Authorization: 'Bearer ' + key} : {}),
+        ...(changes ? {'Content-Type': 'application/json'} : {})
+      },
+      body: changes ? JSON.stringify({changes}) : undefined,
+      cache: 'no-store'
     });
-    let data={};
-    try{data=await response.json()}catch{}
-    if(!response.ok){
-      const e=new Error((data?.message || data?.error || 'HTTP '+response.status));
-      e.httpStatus=response.status;e.data=data;throw e;
+    if (!response.ok) {
+      const error = new Error('HTTP ' + response.status);
+      error.status = response.status;
+      throw error;
     }
-    return data;
+    return response.json();
   }
-  function overlay(file) {
-    if(file.format!=='pontian-github-edits-v1' || file.total!==DATA.length || file.baseVersion!==EDITION_ID || !file.edits || typeof file.edits!=='object' || Array.isArray(file.edits))
-      throw new Error('Το απομακρυσμένο αρχείο αλλαγών δεν αντιστοιχεί στην έκδοση του λεξικού.');
-    remote=file.edits;
-    remoteLoaded=true;
-    const localCompare=new Set([...CHANGED]);
-    const remoteIndices=new Set(Object.keys(remote).map(Number));
-    for(const id of new Set([...localCompare,...remoteIndices])){
-      if(!Number.isInteger(id) || id<0 || id>=DATA.length)continue;
-      const cloudRow=(Object.prototype.hasOwnProperty.call(remote,id)?remote[id]:null);
-      const expected=cloudRow?.deleted===true?cloudRow:(cloudRow||[...BASE_ROWS[id],'']);
-      if(firstOverlay && !pending.has(id) && originalLocalRows.has(id) && !eq(originalLocalRows.get(id),expected)) {
-        // Never silently discard a local edit from the previous offline application.
-        pending.set(id, originalLocalRows.get(id));
-      }
-      const row = pending.has(id) ? pending.get(id) : expected;
-      if(row?.deleted===true)saveRow(id,row);
-      else if(Array.isArray(row) && (row.length===6||row.length===7))saveRow(id,row);
+  function showRows(drafts = new Map()) {
+    const touched = new Set([...CHANGED, ...Object.keys(remote?.edits ?? {}).map(Number), ...drafts.keys()]);
+    for (const id of touched) {
+      const row = drafts.has(id) ? drafts.get(id).row : published(id);
+      saveRow(id, row ?? base(id));
     }
-    firstOverlay=false;
-    savePending();
     updateChangedCounter();
     rebuildPartFilter();
     update();
-    persist();
   }
-  async function reloadRemote(){
-    let data;
-    if(workerURL) data=await api('/edits');
-    else {
-      const resp=await fetch('./data/edits.json?cache='+Date.now(), {cache:'no-store'});
-      if(!resp.ok)throw new Error('Δεν φορτώθηκε το αρχείο δεδομένων ('+resp.status+').');
-      data=await resp.json();
+  function usePublished(file) {
+    remote = validate(file);
+    try { localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(remote)); }
+    catch { /* The published snapshot is also available online. */ }
+  }
+  try {
+    const cached = stored(SNAPSHOT_KEY);
+    if (cached) usePublished(cached);
+  } catch { /* Ignore incompatible snapshots. */ }
+
+  async function readWorker() {
+    usePublished(await api('/edits'));
+    hasWorkerSnapshot = true;
+  }
+  async function readPublished() {
+    try { await readWorker(); }
+    catch (workerError) {
+      const response = await fetch(new URL('data/edits.json', document.baseURI), {cache: 'no-store'});
+      if (!response.ok) throw workerError;
+      const file = validate(await response.json());
+      if (!remote || (file.updatedAt ?? '') >= (remote.updatedAt ?? '')) usePublished(file);
     }
-    overlay(data);
-    if(pending.size)banner(`Υπάρχουν ${pending.size} τοπικές διορθώσεις που δεν έχουν δημοσιευτεί.`, 'warning');
-    else if(editorKey && workerURL)banner('Συνδεδεμένος διαχειριστής · Οι αλλαγές δημοσιεύονται στο GitHub.','ok');
-    else banner('', 'ok');
   }
-  async function login() {
-    const key=document.getElementById('editorAccessKey').value.trim();
-    if(!key){banner('Συμπλήρωσε τον κωδικό πρόσβασης.','warning');return}
-    try {
-      banner('Έλεγχος σύνδεσης…');
-      await api('/auth',{key});
-      editorKey=key;setSession(key);
-      adminMode(true);
-      await reloadRemote();
-      document.getElementById('editorAccessKey').value='';
-      closeModal();
-      if(pending.size){
-        banner(`Συνδέθηκες. Ξεκινά η αποστολή ${pending.size} εκκρεμών αλλαγών στο GitHub…`,'warning');
-        await pump();
-      }
-    } catch(e){editorKey='';setSession('');adminMode(false);banner('Αποτυχία σύνδεσης: '+e.message,'error')}
+
+  if (!IS_ADMIN_PAGE) {
+    showRows();
+    readPublished().then(() => showRows()).catch(() => {});
+    return;
   }
-  function closeModal(){if(typeof modal.close==='function')modal.close();else modal.removeAttribute('open')}
-  function disconnect(){editorKey='';setSession('');adminMode(false);closeModal();banner('Αποσυνδέθηκες. Η δημόσια αναζήτηση παραμένει διαθέσιμη.','ok')}
-  function queue(id) {
-    const row=DELETED.has(id)?{deleted:true}:(CHANGED.has(id) ? dictionarySnapshot(id) : null);
-    pending.set(id,row);savePending();
-    if(!editorKey||!workerURL){banner('Η διόρθωση σώθηκε τοπικά, όχι στο GitHub. Σύνδεσε τον διαχειριστή.','warning');return}
-    banner(`Τοπική αποθήκευση OK · ${pending.size} αλλαγές αναμένουν GitHub…`);
-    clearTimeout(scheduled);
-    scheduled=setTimeout(pump,650);
-  }
-  async function pump(){
-    if(inFlight||!pending.size||!editorKey||!workerURL||!remoteLoaded)return;
-    inFlight=true;updatePendingControls();
-    const batch=[...pending.entries()].slice(0,100);
-    const changes={};
-    for(const [id,row] of batch)changes[id]={expected:(Object.prototype.hasOwnProperty.call(remote,id)?remote[id]:null),row};
-    try{
-      banner(`Αποστολή ${batch.length} διορθώσεων στο GitHub…`);
-      await api('/save',{method:'POST',key:editorKey,body:{changes}});
-      for(const [id,row] of batch){
-        if(row===null)delete remote[id];else remote[id]=row;
-        if(pending.has(id)&&eq(pending.get(id),row))pending.delete(id);
-      }
-      savePending();
-      banner(pending.size?`Δημοσιεύτηκαν ${batch.length} αλλαγές · Εκκρεμούν ${pending.size}.`:
-        `Αποθηκεύτηκαν ${batch.length} αλλαγές στο GitHub. Η δημοσίευση στο Pages ακολουθεί αυτόματα.`,'ok');
-    }catch(e){
-      if(e.httpStatus===409 && e.data?.error==='conflict'){
-        const ids=(e.data.collisions||[]).map(c=>Number(c.index)+1).join(', ');
-        banner('Σύγκρουση αλλαγών στις εγγραφές '+ids+'. Τίποτα δεν αντικαταστάθηκε. Ανανεώστε τη σελίδα και ελέγξτε τις διαφορές.','error');
-      }else if(e.httpStatus===401){
-        editorKey='';setSession('');adminMode(false);
-        banner('Το κλειδί διαχειριστή απορρίφθηκε. Οι αλλαγές έμειναν τοπικά.','error');
-      }else banner('Αδυναμία αποθήκευσης στο GitHub: '+e.message+'. Οι αλλαγές διατηρούνται τοπικά.','error');
-      return;
-    }finally{inFlight=false;updatePendingControls()}
-    if(pending.size)setTimeout(pump,600);
-  }
-  function stageAllLocal() {
-    if(!editorKey){banner('Συνδέσου ως διαχειριστής πρώτα.','warning');return}
-    if(!remoteLoaded){banner('Δεν έχουν φορτωθεί ακόμη οι αλλαγές του GitHub.','warning');return}
-    const ids=[...CHANGED].filter(i=>!eq(DELETED.has(i)?{deleted:true}:dictionarySnapshot(i),remote[i]??[...BASE_ROWS[i],'']));
-    if(!ids.length){banner('Δεν υπάρχουν νέες τοπικές αλλαγές για αποστολή.','ok');return}
-    if(!confirm(`Να σταλούν ${ids.length} τοπικά τροποποιημένες εγγραφές στο GitHub; Θα δημιουργηθούν commits.`))return;
-    for(const i of ids)pending.set(i,DELETED.has(i)?{deleted:true}:dictionarySnapshot(i));
-    savePending();closeModal();pump();
-  }
-  // Keep the original per-entry editor: clicking Save automatically queues a GitHub commit.
-  const originalSave=byId('saveEditor').onclick;
-  byId('saveEditor').onclick=()=>{
-    const id=editorIndex;
-    const before=id>=0?JSON.stringify(DELETED.has(id)?{deleted:true}:dictionarySnapshot(id)):'';
-    originalSave();
-    if(id>=0 && editorIndex===-1 && before!==JSON.stringify(DELETED.has(id)?{deleted:true}:dictionarySnapshot(id)))queue(id);
-  };
-  document.addEventListener('dictionary-entry-deleted',e=>queue(e.detail.index));
-  // Imported JSON is local-only until the editor explicitly selects "Publish local changes".
-  byId('importFile').addEventListener('change',()=>{
-    banner('Οι αλλαγές από αρχείο JSON είναι τοπικές. Μετά την εισαγωγή, χρησιμοποίησε «Δημοσίευση τοπικών».','warning');
+
+  const modal = byId('cloudDialog');
+  const retry = byId('cloudRetryVisible');
+  const pendingActions = byId('cloudPendingActions');
+  let key = '';
+  let pending = new Map();
+  let sending = false;
+  let timer;
+  let sendAgain = false;
+  let database;
+  const channel = typeof BroadcastChannel === 'function' ? new BroadcastChannel('pontian-editor-' + EDITION_ID) : null;
+  const openDatabase = () => database ??= new Promise((resolve, reject) => {
+    const request = indexedDB.open('pontian-dictionary-editor-' + EDITION_ID, 1);
+    request.onupgradeneeded = () => request.result.createObjectStore('rows', {keyPath: 'id'});
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
   });
-  byId('cloudOpen').onclick=()=>{
-    if(!IS_ADMIN_PAGE)return;
-    document.getElementById('editorAccessKey').value=editorKey;
-    if(typeof modal.showModal==='function')modal.showModal();else modal.setAttribute('open','');
-  };
-  document.getElementById('cloudConnect').onclick=login;
-  document.getElementById('cloudDisconnect').onclick=disconnect;
-  document.getElementById('cloudClose').onclick=closeModal;
-  document.getElementById('cloudPublishLocal').onclick=stageAllLocal;
-  document.getElementById('cloudRefresh').onclick=()=>reloadRemote().catch(e=>banner('Δεν φορτώθηκαν οι τελευταίες αλλαγές: '+e.message,'error'));
-  const retryPending=()=>{if(editorKey)pump();else banner('Συνδέσου ως διαχειριστής για να στείλεις τις αλλαγές.','warning')};
-  document.getElementById('cloudRetry').onclick=retryPending;
-  retryVisible.onclick=retryPending;
-  modal.addEventListener('cancel',e=>{e.preventDefault();closeModal()});
-  adminMode(!!editorKey && !!workerURL);
-  banner('Φόρτωση δημοσιευμένων αλλαγών…');
-  reloadRemote().then(async()=>{
-    if(editorKey && workerURL){
-      try{await api('/auth',{key:editorKey});if(pending.size)pump();}
-      catch{editorKey='';setSession('');adminMode(false);banner('Η προηγούμενη σύνδεση έληξε. Συνδέσου ξανά.','warning')}
+  async function transact(mode, operation) {
+    const db = await openDatabase();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('rows', mode);
+      const store = tx.objectStore('rows');
+      const request = store.getAll();
+      let result;
+      let failure;
+      request.onsuccess = () => {
+        try { result = operation(new Map(request.result.map(item => [item.id, item])), store); }
+        catch (error) { failure = error; tx.abort(); }
+      };
+      tx.oncomplete = () => resolve(result);
+      tx.onabort = () => reject(failure ?? tx.error ?? new Error('Η τοπική αποθήκευση απέτυχε.'));
+    });
+  }
+  function controls() {
+    const count = pending.size;
+    pendingActions.hidden = !key || !count;
+    retry.disabled = sending;
+    byId('cloudRetry').hidden = !count;
+    byId('cloudRetry').disabled = sending;
+  }
+  async function reloadDrafts() {
+    pending = await transact('readonly', rows => new Map([...rows].filter(([, item]) => item.pending)));
+    showRows(key ? pending : undefined);
+    controls();
+  }
+  channel?.addEventListener('message', () => {
+    if (!sending) refresh().catch(() => {});
+  });
+  function setSession(value) {
+    try {
+      if (value) sessionStorage.setItem(SESSION_KEY, value);
+      else sessionStorage.removeItem(SESSION_KEY);
+    } catch { /* The current authenticated tab can still be used. */ }
+  }
+  function adminMode(value) {
+    document.body.classList.toggle('admin-mode', value);
+    byId('cloudOpen').setAttribute('aria-pressed', String(value));
+    byId('cloudOpen').querySelector('.cloud-open-label').textContent = value ? 'Διαχειριστής' : 'Διαχείριση';
+    controls();
+  }
+  function closeModal() { modal.close(); }
+  function fail(error) {
+    statusText(error.message || 'Η ενέργεια απέτυχε.', 'error');
+  }
+  async function refresh() {
+    await readPublished();
+    await reloadDrafts();
+    statusText(pending.size ? `Εκκρεμούν ${pending.size} τοπικές αλλαγές.` : key ? 'Συνδεδεμένος διαχειριστής.' : '', pending.size ? 'warning' : 'ok');
+  }
+  async function login(value, automatic = false) {
+    if (!value) throw new Error('Συμπλήρωσε τον κωδικό πρόσβασης.');
+    await api('/auth', {key: value});
+    key = value;
+    setSession(key);
+    adminMode(true);
+    byId('editorAccessKey').value = '';
+    if (!automatic) closeModal();
+    await reloadDrafts();
+    if (pending.size) await pump();
+    else statusText('Συνδεδεμένος διαχειριστής.', 'ok');
+  }
+  function logout() {
+    key = '';
+    setSession('');
+    byId('editorAccessKey').value = '';
+    adminMode(false);
+    closeModal();
+    showRows();
+    statusText('Αποσυνδέθηκες.', 'ok');
+  }
+  function schedule() {
+    clearTimeout(timer);
+    timer = setTimeout(() => pump(), 650);
+  }
+  function makeDraft(id, submitted, previous, opening, held) {
+    const row = !isDeleted(submitted) && same(canonical(submitted), base(id)) ? null : canonical(submitted);
+    const expected = previous?.pending ? previous.expected : opening.expected;
+    const before = isDeleted(row) && !DELETED.has(id) ? dictionarySnapshot(id) :
+      isDeleted(row) ? (previous?.before ?? null) : null;
+    return {id, expected, row, before, held, pending: true, revision: crypto.randomUUID()};
+  }
+  async function stageMany(list, held = false) {
+    if (!key) throw new Error('Συνδέσου ως διαχειριστής.');
+    if (!hasWorkerSnapshot && !remote) throw new Error('Χρειάζεται πρώτα ένα επιβεβαιωμένο στιγμιότυπο διορθώσεων.');
+    try {
+      await transact('readwrite', (rows, store) => {
+        for (const [id, row, opening] of list) {
+          const previous = rows.get(id);
+          const current = previous?.pending ? previous.revision : null;
+          if (current !== opening.revision) throw new Error('Η εγγραφή άλλαξε σε άλλη καρτέλα. Κράτησε το κείμενό σου και άνοιξε ξανά την εγγραφή.');
+          const draft = makeDraft(id, row, previous, opening, held);
+          if (same(canonical(draft.expected), draft.row) &&
+              !previous?.pending) {
+            if (isDeleted(published(id)) && previous?.before) store.put({...previous, pending: false});
+            else store.delete(id);
+          } else store.put(draft);
+        }
+      });
+    } catch (error) {
+      throw new Error('Η αλλαγή δεν αποθηκεύτηκε τοπικά. ' + error.message);
     }
-  }).catch(e=>banner('Το λεξικό λειτουργεί, αλλά δεν φορτώθηκαν οι ενημερώσεις GitHub: '+e.message,'warning'));
+    await reloadDrafts();
+    channel?.postMessage('draft');
+    statusText(pending.size ? `Τοπική αποθήκευση ολοκληρώθηκε · εκκρεμούν ${pending.size}.` : 'Δεν εκκρεμεί αλλαγή.', 'ok');
+    if (!held) schedule();
+  }
+  async function acknowledge(item) {
+    await transact('readwrite', (rows, store) => {
+      if (rows.get(item.id)?.revision !== item.revision) return;
+      if (isDeleted(item.row) && item.before) store.put({...item, pending: false});
+      else store.delete(item.id);
+    });
+  }
+  async function pump(review = false) {
+    if (!key) return;
+    if (sending) { sendAgain = true; return; }
+    if (navigator.locks) {
+      await navigator.locks.request('pontian-editor-sync-' + EDITION_ID, () => send(review));
+    } else await send(review);
+  }
+  async function send(review) {
+    if (!key || sending) return;
+    sending = true;
+    controls();
+    try {
+      await readWorker();
+      await reloadDrafts();
+      const ready = [];
+      let conflicts = 0;
+      for (const item of pending.values()) {
+        if (item.held && (!review || !confirm(`Να σταλεί η εισαγόμενη τιμή για «${BASE_ROWS[item.id][0]}»;`))) continue;
+        const latest = published(item.id);
+        if (same(canonical(latest), canonical(item.row))) {
+          await acknowledge(item);
+        } else if (same(canonical(latest), canonical(item.expected))) {
+          ready.push({...item, expected: latest});
+        } else {
+          conflicts++;
+          if (review && confirm(`Σύγκρουση για «${BASE_ROWS[item.id][0]}».\n\nΔημοσιευμένη τιμή: ${describe(item.id, latest)}\n\nΤοπική τιμή: ${describe(item.id, item.row)}\n\nΝα δημοσιευτεί η τοπική τιμή;`)) {
+            ready.push({...item, expected: latest});
+          }
+        }
+      }
+      for (let start = 0; start < ready.length && key; start += 100) {
+        const batch = ready.slice(start, start + 100);
+        const changes = Object.fromEntries(batch.map(({id, expected, row}) => [id, {expected, row}]));
+        statusText(`Αποστολή ${batch.length} αλλαγών…`);
+        await api('/save', {key, changes});
+        // Confirm the committed value from the Worker before removing durable drafts.
+        await readWorker();
+        for (const item of batch) {
+          if (same(canonical(published(item.id)), canonical(item.row))) await acknowledge(item);
+        }
+        channel?.postMessage('published');
+      }
+      await reloadDrafts();
+      statusText(pending.size ? `Εκκρεμούν ${pending.size} αλλαγές${conflicts ? ' · απαιτείται έλεγχος σύγκρουσης' : ''}.` :
+        'Οι αλλαγές είναι συγχρονισμένες.', pending.size ? 'warning' : 'ok');
+    } catch (error) {
+      if (error.status === 401) logout();
+      statusText(error.status === 409 ? 'Το GitHub άλλαξε στη διάρκεια της αποστολής. Οι εκκρεμότητες διατηρούνται.' :
+        'Ο συγχρονισμός δεν ολοκληρώθηκε. Οι εκκρεμότητες διατηρούνται. ' + error.message, 'error');
+    } finally {
+      sending = false;
+      controls();
+      if (sendAgain) { sendAgain = false; schedule(); }
+    }
+  }
+  function describe(id, row) {
+    return isDeleted(row) ? 'Διαγραμμένο' : JSON.stringify(row ?? base(id));
+  }
+  async function reviewLegacy() {
+    if (!key) throw new Error('Συνδέσου ως διαχειριστής.');
+    await readWorker();
+    await reloadDrafts();
+    const legacy = stored(STORAGE_KEY);
+    const local = legacy?.edition === EDITION_ID && legacy.size === DATA.length ? legacy.edits : {};
+    const candidates = {...local, ...stored(LEGACY_PENDING)};
+    const reviewed = [];
+    for (const [id, row] of Object.entries(candidates)) {
+      if (!validId(id) || (row !== null && !validRow(row)) || pending.has(Number(id))) continue;
+      const latest = published(id);
+      if (same(canonical(row ?? base(id)), canonical(latest ?? base(id)))) continue;
+      if (confirm(`Παλιά τοπική τιμή για «${BASE_ROWS[id][0]}».\n\nΔημοσιευμένη: ${describe(id, latest)}\n\nΤοπική: ${describe(id, row)}\n\nΝα μπει στην ουρά για αποστολή;`)) {
+        reviewed.push([Number(id), row ?? base(id), opening(Number(id))]);
+      }
+    }
+    if (reviewed.length) await stageMany(reviewed);
+    else statusText('Δεν επιλέχθηκαν παλιές αλλαγές.', 'ok');
+  }
+
+  async function recovery(id) {
+    const saved = await transact('readonly', rows => rows.get(id));
+    if (saved?.before) return saved.before;
+    try {
+      const repo = 'https://api.github.com/repos/ksaefos/pontian-dictionary/commits';
+      const commits = await fetch(repo + '?sha=main&path=data%2Fedits.json&per_page=30');
+      if (!commits.ok) throw new Error();
+      let found = false;
+      for (const {sha} of await commits.json()) {
+        if (!/^[a-f0-9]{40}$/.test(sha)) throw new Error();
+        const response = await fetch('https://raw.githubusercontent.com/ksaefos/pontian-dictionary/' + sha + '/data/edits.json');
+        if (!response.ok) throw new Error();
+        const entry = validate(await response.json()).edits[id] ?? null;
+        if (isDeleted(entry)) found = true;
+        else if (found) return entry ?? base(id);
+        else break;
+      }
+    } catch { /* Offer explicit recovery from the embedded base when history is unavailable. */ }
+    if (confirm('Η τιμή πριν από τη διαγραφή δεν βρέθηκε στο ιστορικό. Να χρησιμοποιηθεί η αρχική εγγραφή της βάσης;')) return base(id);
+    throw new Error('Η επαναφορά ακυρώθηκε.');
+  }
+
+  const opening = id => ({revision: pending.get(id)?.revision ?? null, expected: published(id)});
+  syncEditor = {
+    revision: opening,
+    stage: (id, row, revision) => stageMany([[id, row, revision]]),
+    importRows: list => stageMany(list.map(([id, row]) => [Number(id), row, opening(Number(id))]), true),
+    recovery
+  };
+  byId('cloudOpen').onclick = () => modal.showModal();
+  byId('cloudConnect').onclick = () => login(byId('editorAccessKey').value.trim()).catch(fail);
+  byId('cloudDisconnect').onclick = logout;
+  byId('cloudClose').onclick = closeModal;
+  byId('cloudRefresh').onclick = () => refresh().catch(fail);
+  byId('cloudPublishLocal').onclick = () => reviewLegacy().catch(fail);
+  retry.onclick = byId('cloudRetry').onclick = () => pump(true);
+  window.addEventListener('online', () => pump());
+  showRows();
+  const initialized = refresh().catch(fail);
+  try {
+    const saved = sessionStorage.getItem(SESSION_KEY);
+    if (saved) initialized.then(() => login(saved, true)).catch(error => {
+      if (error.status === 401) setSession('');
+      fail(error);
+    });
+  } catch { /* No session storage is available. */ }
 })();
