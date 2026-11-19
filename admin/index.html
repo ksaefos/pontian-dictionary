@@ -106,6 +106,12 @@ body.admin-page .entries:not(.list-view) .pill{font-size:11px;padding:3px 7px}
 #proofContext{white-space:pre-wrap;overflow-wrap:anywhere;padding:12px;background:var(--surface-low);border-radius:12px}
 #proofWord{overflow-wrap:anywhere}
 #proofInline{overflow-wrap:anywhere}
+#editPreview{white-space:pre-wrap}
+.proof-mark{font:inherit;color:inherit;background:transparent;border:0;padding:0;cursor:pointer;text-decoration:underline wavy #b3261e;text-underline-offset:.2em}
+.proof-mark[data-kind="abbreviation"],.proof-mark[data-kind="historical"],.proof-mark[data-kind="abbreviation-review"]{text-decoration-color:#547ac2}
+.proof-mark[aria-pressed="true"]{background:var(--surface-high)}
+#proofInlineActions{padding:8px 0}
+#proofBatchPreview{max-height:36vh;overflow:auto;overflow-wrap:anywhere}
 </style></head><body>
 <svg style="display:none" xmlns="http://www.w3.org/2000/svg"><symbol id="i-book" viewBox="0 0 24 24"><path d="M4 4.5c3-.9 5.5-.6 8 1v14c-2.5-1.6-5-1.9-8-1V4.5Zm16 0c-3-.9-5.5-.6-8 1v14c2.5-1.6 5-1.9 8-1V4.5Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol><symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="6.8" fill="none" stroke="currentColor" stroke-width="2"/><path d="m16 16 5 5" fill="none" stroke="currentColor" stroke-width="2"/></symbol><symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M11 1h2v4h-2zm0 18h2v4h-2zM1 11h4v2H1zm18 0h4v2h-4zM3.7 5.1l1.4-1.4 2.8 2.8-1.4 1.4zm12.4 12.4 1.4-1.4 2.8 2.8-1.4 1.4zM16.1 6.5l2.8-2.8 1.4 1.4-2.8 2.8zM3.7 18.9l2.8-2.8 1.4 1.4-2.8 2.8z"/></symbol><symbol id="i-moon" viewBox="0 0 24 24"><path d="M20.8 15.7A9 9 0 0 1 8.3 3.2 9 9 0 1 0 20.8 15.7Z"/></symbol><symbol id="i-grid" viewBox="0 0 24 24"><path d="M3 3h8v8H3zm10 0h8v8h-8zM3 13h8v8H3zm10 0h8v8h-8z"/></symbol><symbol id="i-list" viewBox="0 0 24 24"><path d="M8 5h13v2H8zm0 6h13v2H8zm0 6h13v2H8zM3 5h3v2H3zm0 6h3v2H3zm0 6h3v2H3z"/></symbol><symbol id="i-x" viewBox="0 0 24 24"><path d="m5 5 14 14M19 5 5 19" stroke="currentColor" stroke-width="2" fill="none"/></symbol><symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 17.5V20h3l11-11-3-3L4 17.5Z"/><path d="m13.7 7.3 3 3m-1.2-5.8 1.4-1.4a1.8 1.8 0 0 1 2.6 0l1.4 1.4a1.8 1.8 0 0 1 0 2.6L19.5 8.5"/></symbol><symbol id="i-save" viewBox="0 0 24 24"><path d="M4 3h13l3 3v15H4zM7 3v7h10V3M8 21v-8h8v8"/></symbol><symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v13m-5-5 5 5 5-5M4 17v4h16v-4"/></symbol><symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 20V7m-5 5 5-5 5 5M4 7V3h16v4"/></symbol></svg>
 <header><div class="topbar"><div class="brand"><span class="brand-icon"><svg class="icon" aria-hidden="true"><use href="#i-book"/></svg></span><div><h1>Ποντιακό Λεξικό</h1><p>Αναζήτηση σε λήμματα, παραλλαγές γραφής και σημασίες</p></div></div><button id="cloudOpen" class="cloud-open" type="button" aria-pressed="false" title="Σύνδεση διαχειριστή"><svg aria-hidden="true"><use href="#i-edit"/></svg><span class="cloud-open-label">Διαχείριση</span></button><button id="themeToggle" class="theme-switch" type="button" aria-label="Εναλλαγή φωτεινού και σκοτεινού θέματος" aria-pressed="false" title="Αλλαγή θέματος"><svg class="icon" aria-hidden="true"><use id="themeIcon" href="#i-moon"/></svg><span class="theme-label" id="themeLabel">Σκοτεινό θέμα</span><span class="switch-track" aria-hidden="true"></span></button></div></header>
@@ -140,17 +146,18 @@ body.admin-page .entries:not(.list-view) .pill{font-size:11px;padding:3px 7px}
 <label class="edit-field">Λήμμα<input type="text" id="editLemma" spellcheck="false" autocomplete="off"></label>
 <label class="edit-field">Μέρος του λόγου<select id="editPos"></select></label>
 <label class="edit-field wide">Επεξήγηση / σημασίες<textarea id="editDefinition" class="definition-input" spellcheck="true"></textarea><small>Το • διαχωρίζει σημασίες. Οι παρενθέσεις μέσα στην επεξήγηση εμφανίζονται με πλάγια γράμματα.</small></label>
-<label class="edit-field wide">Προεπισκόπηση επεξήγησης<div id="editPreview" class="editor-preview definition"></div></label>
+<div class="edit-field wide"><span>Προεπισκόπηση επεξήγησης</span><div id="editPreview" class="editor-preview definition"></div>
+<div id="proofInlineActions" data-proofing>
+<div id="proofInline" role="status"></div>
+<div class="proof-controls" id="proofInlineBar" hidden>
+<button type="button" class="m-btn" id="proofInlineNext">Επόμενη επισήμανση</button>
+<button type="button" class="m-btn" id="proofNormalizeEntry" hidden>Ενοποίηση συντομογραφιών στο λήμμα</button>
+<span id="proofInlineOptions" class="proof-controls" hidden></span>
+</div></div></div>
 <label class="edit-field" id="diminutiveField" hidden>Υποκοριστικό (τύπος)<input id="editDiminutive" type="text" spellcheck="false" placeholder="π.χ. υποκοριστική μορφή"></label>
 <label class="edit-field">Αρχική λέξη / ρίζα<input type="text" id="editRoot" autocomplete="off"></label>
 <label class="edit-field">Εναλλακτικές γραφές<textarea id="editVariants" spellcheck="false" placeholder="Μία εναλλακτική γραφή ανά γραμμή"></textarea></label>
 </div>
-<details class="shortcut-guide" data-proofing>
-<summary>Έλεγχος ορθογραφίας και τυπογραφίας</summary>
-<p>Κανόνες γραφής και τύποι από τη σάρωση των επεξηγήσεων.</p>
-<div id="proofInline"></div>
-</details>
-<p id="proofInlineMessage" data-proofing role="status"></p>
 <div class="editor-tools"><label><input type="checkbox" id="autoSymbols" checked> Αυτόματες αντικαταστάσεις χαρακτήρων κατά την πληκτρολόγηση</label><button id="convertExisting" class="m-btn" type="button">Εφαρμογή συντομεύσεων στα πεδία</button></div>
 <details class="shortcut-guide"><summary>Προβολή όλων των συντομεύσεων χαρακτήρων</summary><div id="shortcutList" class="shortcut-list"></div></details>
 <div class="editor-actions"><button id="deleteEditor" class="m-btn delete-entry" type="button">Διαγραφή λήμματος</button><button id="restoreEditor" class="m-btn" type="button">Επαναφορά αρχικής εγγραφής</button><button id="cancelEditor" class="m-btn" type="button">Ακύρωση</button><button id="saveEditor" class="m-btn primary" type="button"><svg aria-hidden="true"><use href="#i-save"/></svg>Αποθήκευση</button></div>
@@ -163,13 +170,14 @@ body.admin-page .entries:not(.list-view) .pill{font-size:11px;padding:3px 7px}
 <div class="proof-controls">
 <label>Αναζήτηση τύπου<input id="proofQuery" type="search"></label>
 <label>Κατηγορία<select id="proofKind"><option value="">Όλες</option><option value="known">Ελεγμένες προτάσεις</option>
-<option value="unknown">Τύποι προς έλεγχο</option><option value="apostrophe">Απόστροφος</option>
+<option value="abbreviation">Ενοποίηση συντομογραφιών</option><option value="historical">Ιστορική μέση φωνή</option><option value="abbreviation-review">Πιθανές συντομογραφίες</option><option value="unknown">Τύποι προς έλεγχο</option><option value="apostrophe">Απόστροφος</option>
 <option value="spacing">Κενά</option><option value="invisible">Αόρατοι χαρακτήρες</option></select></label>
 <label><span><input type="checkbox" id="proofShowAccepted"> Εμφάνιση αποδεκτών</span></label>
 </div>
 <p>Οι τύποι που δεν αναγνωρίζει το Hunspell μπορεί να είναι συντομογραφίες, κύρια ονόματα ή ποντιακές λέξεις.</p>
 <div class="proof-controls"><button type="button" id="proofPrev" class="m-btn">Προηγούμενη ομάδα</button>
-<button type="button" id="proofNext" class="m-btn">Επόμενη ομάδα</button><span id="proofGroupCount" role="status"></span></div>
+<button type="button" id="proofNext" class="m-btn">Επόμενη ομάδα</button><span id="proofGroupCount" role="status"></span>
+<button type="button" id="proofNormalizeAll" class="m-btn">Προεπισκόπηση όλων των ενοποιήσεων</button></div>
 <section id="proofResult" hidden>
 <h3 id="proofWord"></h3>
 <div class="proof-controls"><button type="button" id="proofUsePrev" class="m-btn">Προηγούμενη εμφάνιση</button>
@@ -179,8 +187,15 @@ body.admin-page .entries:not(.list-view) .pill{font-size:11px;padding:3px 7px}
 <button type="button" id="proofOpenEditor" class="m-btn">Άνοιγμα λήμματος</button>
 <select id="proofChoice" aria-label="Προτεινόμενη διόρθωση"></select>
 <button type="button" id="proofApply" class="m-btn primary">Πρόταση στον editor</button>
+<button type="button" id="proofSaveNext" class="m-btn">Αποθήκευση και επόμενο</button>
+<button type="button" id="proofBatchOpen" class="m-btn" hidden>Προεπισκόπηση όλης της ομάδας</button>
 <button type="button" id="proofAccept" class="m-btn">Αποδοχή τύπου</button></div>
 </section>
+<div id="proofBatchPanel" hidden>
+<p id="proofBatchStatus" role="status"></p>
+<ol id="proofBatchPreview"></ol>
+<button type="button" id="proofBatchSave" class="m-btn primary">Αποθήκευση και αποστολή ομάδας</button>
+</div>
 <p>Alt + ← / → για ομάδες · πρόσθεσε Shift για εμφανίσεις.</p>
 <button type="button" id="proofExport" class="m-btn">Εξαγωγή αποδεκτών τύπων</button>
 </div></dialog>
@@ -487,7 +502,7 @@ document.addEventListener('keydown',e=>{
    else if(!STANDALONE)byId('cloudOpen').click();
  }
 });
-</script><script src="cloud-sync.js?v=5.2.0"></script><script src="admin/proofreading.js?v=1"></script><script>
+</script><script src="cloud-sync.js?v=5.2.1"></script><script src="admin/proofreading.js?v=2"></script><script>
 if (!STANDALONE && 'serviceWorker' in navigator && location.protocol === 'https:') {
   window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js', {scope:'./'})
     .catch(err => console.warn('PWA offline registration:', err)));

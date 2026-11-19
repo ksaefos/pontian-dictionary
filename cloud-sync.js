@@ -331,6 +331,7 @@
   syncEditor = {
     revision: opening,
     stage: (id, row, revision) => stageMany([[id, row, revision]]),
+    stageBatch: stageMany,
     importRows: list => stageMany(list.map(([id, row]) => [Number(id), row, opening(Number(id))]), true),
     recovery
   };

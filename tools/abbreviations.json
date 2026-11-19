@@ -1,0 +1,20 @@
+{
+  "αμετ": {"label": "Αμετάβατο ρήμα", "canonical": "αμετ.", "forms": ["αμετ", "αμέτ"], "bare": true},
+  "μτβ": {"label": "Μεταβατικό ρήμα", "canonical": "μτβ.", "forms": ["μτβ", "μεταβ"], "bare": true},
+  "παθ": {"label": "Παθητική φωνή", "canonical": "παθ.", "forms": ["παθ", "πάθ", "παθητ"], "bare": true},
+  "ενεργ": {"label": "Ενεργητική φωνή", "canonical": "ενεργ.", "forms": ["ενεργ"], "bare": true},
+  "μεσ": {"label": "Ιστορική ένδειξη μέσης φωνής · απαιτείται επανεξέταση", "canonical": null, "forms": ["μέσ", "μεσ"], "bare": true},
+  "τοπων": {"label": "Τοπωνύμιο", "canonical": "τοπων.", "forms": ["τοπων", "τοπον"], "bare": false},
+  "μτφρ": {"label": "Μεταφορικά", "canonical": "(μεταφορικά)", "forms": ["μτφρ"], "bare": true},
+  "Τραπ": {"label": "Τραπεζούντα", "canonical": "Τραπ.", "forms": ["Τραπ", "Τραπεζ"], "bare": true},
+  "Χαλδ": {"label": "Χαλδία", "canonical": "Χαλδ.", "forms": ["Χαλδ"], "bare": true},
+  "απρόσ": {"label": "Απρόσωπο", "canonical": "απρόσ.", "forms": ["απρόσ", "απροσ"], "bare": false},
+  "πληθ": {"label": "Πληθυντικός", "canonical": "πληθ.", "forms": ["πληθ"], "bare": false},
+  "μτχ": {"label": "Μετοχή", "canonical": "μετοχή", "forms": ["μτχ"], "bare": true},
+  "γεν": {"label": "Γενική", "canonical": null, "forms": ["γεν"], "bare": false},
+  "ουδ": {"label": "Ουδέτερο", "canonical": null, "forms": ["ουδ", "ουδετ"], "bare": false},
+  "επών": {"label": "Επώνυμο", "canonical": null, "forms": ["επών"], "bare": false},
+  "συνεκδ": {"label": "Συνεκδοχικά", "canonical": null, "forms": ["συνεκδ"], "bare": false},
+  "παράγ": {"label": "Παράγωγο", "canonical": null, "forms": ["παράγ"], "bare": false},
+  "αλληλοπ": {"label": "Αλληλοπαθητική χρήση", "canonical": null, "forms": ["αλληλοπ"], "bare": false}
+}

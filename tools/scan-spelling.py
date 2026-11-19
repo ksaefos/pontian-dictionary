@@ -12,7 +12,9 @@ import re
 import unicodedata
 
 ROOT = Path(__file__).resolve().parents[1]
-FORMAT = "pontian-proofreading-v1"
+FORMAT = "pontian-proofreading-v2"
+ABBREVIATIONS = json.loads((ROOT / "tools/abbreviations.json").read_text())
+ABBREVIATION_FORMS = {form: rule for rule in ABBREVIATIONS.values() for form in rule["forms"]}
 FIELDS = {0: "lemma", 1: "definition", 2: "root", 6: "diminutive"}
 WORD = re.compile(r"[Α-Ωα-ωΆΈΉΊΌΎΏΪΫάέήίόύώϊϋΐΰ\u0300-\u036f]+")
 # Whole-word corrections for modern Greek explanations. Add verified examples here.
@@ -139,6 +141,21 @@ def main():
                 for match in WORD.finditer(raw):
                     token = match[0]
                     word = unicodedata.normalize("NFC", token)
+                    dotted = raw[match.end():match.end() + 1] == "." and raw[match.end():match.end() + 2] != ".."
+                    rule = ABBREVIATION_FORMS.get(word)
+                    if rule and (dotted or rule["bare"]):
+                        end = match.end() + int(dotted)
+                        original = raw[match.start():end]
+                        replacement = rule["canonical"]
+                        if replacement == "(μεταφορικά)" and raw[match.start() - 1:match.start()] == "(":
+                            replacement = "μεταφορικά"
+                        if replacement and WORD.match(raw, end):
+                            replacement += " "
+                        if replacement and replacement != original:
+                            record("abbreviation", original, replacement, index, field, match.start(), raw)
+                        elif rule is ABBREVIATIONS["μεσ"]:
+                            record("historical", original, None, index, field, match.start(), raw)
+                        continue
                     if word in accepted or len(word) < 3:
                         continue
                     replacement = CORRECTIONS.get(word)
@@ -153,7 +170,10 @@ def main():
                     if word not in checked:
                         checked[word] = checker.check(word)
                     if not checked[word]:
-                        record("unknown", token, None, index, field, match.start(), raw)
+                        rest = raw[match.end() + 1:].lstrip()
+                        suspected = dotted and len(word) <= 7 and bool(rest) and rest[0].islower()
+                        record("abbreviation-review" if suspected else "unknown",
+                               token + "." if suspected else token, None, index, field, match.start(), raw)
 
         frequent = sorted(
             ((len(uses), token) for (rule, token, _), uses in groups.items() if rule == "unknown"),
@@ -161,10 +181,12 @@ def main():
         )[:100]
         suggestions = {token: checker.suggest(unicodedata.normalize("NFC", token)) for _, token in frequent}
 
-    order = {"known": 0, "apostrophe": 1, "spacing": 2, "invisible": 3, "unknown": 4}
+    order = {"known": 0, "abbreviation": 1, "apostrophe": 2, "spacing": 3, "invisible": 4,
+             "historical": 5, "abbreviation-review": 6, "unknown": 7}
     report = {
         "format": FORMAT, "edition": edition, "baseSha256": base_hash, "overlayUpdatedAt": overlay_date,
-        "scanned": sum(row is not None for row in rows), "fingerprints": fingerprints,
+        "scanned": sum(row is not None for row in rows), "fingerprints": fingerprints, "abbreviations": ABBREVIATIONS,
+        "corrections": CORRECTIONS,
         "groups": [
             {"rule": rule, "token": token, "replacement": replacement, "uses": uses,
              **({"suggestions": suggestions[token]} if suggestions.get(token) else {})}

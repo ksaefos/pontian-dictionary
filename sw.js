@@ -1,11 +1,11 @@
 /* Versioned app shell and last successfully fetched public overlay. */
-const CACHE = 'pontian-dictionary-shell-v5.2.0';
+const CACHE = 'pontian-dictionary-shell-v5.2.1';
 const ROOT = self.registration.scope;
 const EDITS = ROOT + 'data/edits.json';
 const PUBLIC = ROOT + 'index.html';
 const ADMIN = ROOT + 'admin/index.html';
 const SHELL = [
-  PUBLIC, ADMIN, ROOT + 'cloud-sync.js?v=5.2.0',
+  PUBLIC, ADMIN, ROOT + 'cloud-sync.js?v=5.2.1', ROOT + 'admin/proofreading.js?v=2',
   ROOT + 'manifest.webmanifest?v=2', ROOT + 'icons/icon-192.png?v=2',
   ROOT + 'icons/icon-512.png?v=2'
 ];
@@ -29,7 +29,7 @@ self.addEventListener('fetch', event => {
       !url.pathname.startsWith(new URL(ROOT).pathname)) return;
 
   // Versioned assets use the same snapshot as their offline HTML.
-  if (url.href === ROOT + 'cloud-sync.js?v=5.2.0') {
+  if (url.href === ROOT + 'cloud-sync.js?v=5.2.1') {
     event.respondWith(caches.open(CACHE).then(async cache => (await cache.match(url.href)) || fetch(request)));
     return;
   }
